@@ -37,7 +37,6 @@ warnings.simplefilter('ignore')
 cm = plt.cm
 FRAME_TIMES = {'SUBSTRIP96':2.213, 'SUBSTRIP256':5.491, 'FULL':10.737}
 SUBARRAY_Y = {'SUBSTRIP96':96, 'SUBSTRIP256':256, 'FULL':2048}
-COEFFS = [[1.71164931e-11, -9.29379122e-08, 1.91429367e-04, -1.43527531e-01, 7.13727478e+01],[]]
 
 def make_linear_SOSS_trace(psfs, plot=False):
     """
@@ -83,9 +82,25 @@ def make_linear_SOSS_trace(psfs, plot=False):
         
     return linear_trace
     
-def transform_from_polynomial(rows, cols, coeffs=COEFFS[0], downsample=50, plot=False):
+def transform_from_polynomial(rows, cols, coeffs, downsample=50):
     """
     Calculate the transform needed to warp one image into another
+    
+    Parameters
+    ----------
+    rows: int
+        The number of rows
+    cols: int
+        The number of cols
+    coeffs: sequence
+        The list of polynomial coefficients (highest order first)
+    downsample: int
+        The number of control points
+    
+    Returns
+    -------
+    transform object
+        The transform between the two sets of points
     """
     # Generate the control points
     src_cols = np.linspace(0, cols, cols//downsample)
@@ -95,7 +110,8 @@ def transform_from_polynomial(rows, cols, coeffs=COEFFS[0], downsample=50, plot=
     
     # Calculate the bottom of the curved trace
     x_vals = np.arange(cols)
-    y_min = np.nanmin(np.polyval(coeffs, x_vals))
+    # y_min = np.nanmin(np.polyval(coeffs, x_vals))
+    y_min = 0
     
     # Add curvature to control points
     dst_cols = src[:,0]
@@ -114,12 +130,12 @@ def ADUtoFlux(order):
     in SOSS traces 1, 2, and 3
     
     Parameters
-    ==========
+    ----------
     order: int
         The trace order, must be 1, 2, or 3
     
     Returns
-    =======
+    -------
     np.ndarray
         Arrays to convert the given order trace from ADUs to units of flux
     """
@@ -612,6 +628,63 @@ def get_frame_times(subarray, ngrps, nints, t0, nresets=1):
     
     return time_axis
 
+def trace_polynomials(subarray='SUBSTRIP256', order=4, generate=False):
+    """
+    Determine the polynomials of the SOSS traces from the IDT's values
+    
+    Parameters
+    ----------
+    subarray: str
+        The name of the subarray
+    order: int
+        The order polynomail to fit
+    generate: bool
+        Generate new coefficients
+    
+    Returns
+    -------
+    sequence
+        The list of polynomial coefficients for orders 1  and 2
+    """
+    if generate:
+        
+        # Get the data
+        file = pkg_resources.resource_filename('AWESim_SOSS', 'files/soss_wavelength_trace_table1.txt')
+        x1, y1,w1, x2, y2, w2 = np.genfromtxt(file, unpack=True)
+        
+        # Subarray 96
+        if subarray=='SUBSTRIP96':
+            y1 -= 10
+            y2 -= 10
+            
+        # Fit the polynomails
+        fit1 = np.polyfit(x1, y1, order)
+        fit2 = np.polyfit(x2, y2, order)
+        
+        # Plot the results
+        plt.figure(figsize=(13,2))
+        plt.plot(x1, y1, c='b', marker='o', ls='none', label='Order 1')
+        plt.plot(x2, y2, c='b', marker='o', ls='none', label='Order 2')
+        plt.plot(x1, np.polyval(fit1, x1), c='r', label='Order 1 Fit')
+        plt.plot(x2, np.polyval(fit2, x2), c='r', label='Order 2 Fit')
+        plt.xlim(0,2048)
+        if subarray=='SUBSTRIP96':
+            plt.ylim(0,96)
+        else:
+            plt.ylim(0,256)
+        plt.legend(loc=0)
+        
+        return fit1, fit2
+        
+    else:
+        
+        if subarray=='SUBSTRIP96':
+            coeffs = [[1.71164994e-11, -4.72119272e-08, 5.10276801e-05, -5.91535309e-02, 7.30680347e+01], [2.35792131e-13, 2.42999478e-08, 1.03641247e-05, -3.63088657e-02, 8.96766537e+01]]
+        else:
+            coeffs = [[1.71164994e-11, -4.72119272e-08, 5.10276801e-05, -5.91535309e-02, 8.30680347e+01], [2.35792131e-13, 2.42999478e-08, 1.03641247e-05, -3.63088657e-02, 9.96766537e+01]]
+
+        return coeffs
+
 class TSO(object):
     """
     Generate NIRISS SOSS time series observations
@@ -645,7 +718,6 @@ class TSO(object):
         DIR_PATH = os.path.dirname(os.path.realpath(AWESim_SOSS.__file__))
         star = np.genfromtxt(DIR_PATH+'/files/scaled_spectrum.txt', unpack=True)
         star1D = [star[0]*q.um, (star[1]*q.W/q.m**2/q.um).to(q.erg/q.s/q.cm**2/q.AA)]
-        planet1D = np.genfromtxt(DIR_PATH+'/files/WASP107b_pandexo_input_spectrum.dat', unpack=True)
         
         # Initialize simulation
         tso = awesim.TSO(ngrps=5, nints=20, star=star1D)
@@ -719,6 +791,7 @@ class TSO(object):
         tso.run_simulation()
         
         # Simulate star with transiting exoplanet by including transmission spectrum and orbital params
+        planet1D = np.genfromtxt(DIR_PATH+'/files/WASP107b_pandexo_input_spectrum.dat', unpack=True)
         params = batman.TransitParams()
         params.t0 = 0.                                # time of inferior conjunction
         params.per = 5.7214742                        # orbital period (days)
@@ -791,7 +864,7 @@ class TSO(object):
             ld_coeffs = list(map(list, ld_coeffs))
             
             # Caluclate the transform for the desired polynomial
-            tform = transform_from_polynomial(self.nrows, self.ncols, coeffs=COEFFS[order-1])
+            tform = transform_from_polynomial(self.nrows, self.ncols, trace_polynomials(self.subarray, generate=False)[order-1])
             
             # Run multiprocessing to generate lightcurves
             if verbose:
@@ -838,10 +911,10 @@ class TSO(object):
                 print('Order {} warped traces finished:'.format(order), time.time()-start)
                 
             # Add it to the individual order
-            setattr(self, 'tso_order{}'.format(order), tso_order)
+            setattr(self, 'tso_order{}_ideal'.format(order), tso_order)
             
         # Add to the master TSO
-        self.tso = np.sum([getattr(self, 'tso_order{}'.format(order)) for order in orders], axis=0)
+        self.tso = np.sum([getattr(self, 'tso_order{}_ideal'.format(order)) for order in orders], axis=0)
         
         # Add noise to the observations using Kevin Volk's dark ramp simulator
         self.tso_ideal = self.tso.copy()
@@ -1318,3 +1391,4 @@ class TSO(object):
         prihdu.writeto(outfile, overwrite=True)
         
         print('File saved as',outfile)
+        
