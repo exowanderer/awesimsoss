@@ -696,7 +696,7 @@ class TSO(object):
         self.tso_order1_ideal = np.zeros(self.dims)
         self.tso_order2_ideal = np.zeros(self.dims)
     
-    def run_simulation(self, filt='CLEAR', orders=[1,2], planet='', params='', ld_profile='quadratic', ld_coeffs='', verbose=True):
+    def run_simulation(self, filt='CLEAR', planet='', params='', ld_profile='quadratic', ld_coeffs='', verbose=True):
         """
         Generate the simulated 2D data given the initialized TSO object
         
@@ -704,8 +704,6 @@ class TSO(object):
         ----------
         filt: str
             The element from the filter wheel to use, i.e. 'CLEAR' or 'F277W'
-        orders: sequence
-            The orders to simulate
         planet: sequence (optional)
             The wavelength and Rp/R* of the planet at t=0 
         params: batman.transitmodel.TransitParams (optional)
@@ -737,17 +735,12 @@ class TSO(object):
         self.tso = np.zeros(self.dims)
         self.tso_ideal = np.zeros(self.dims)
         
-        # Set single order to list
-        if isinstance(orders,int):
-            orders = [orders]
-        if not all([o in [1,2] for o in orders]):
-            raise TypeError('Order must be either an int, float, or list thereof; i.e. [1,2]')
-        orders = list(set(orders))
-        
         # Check if it's F277W to speed up calculation
         if 'F277W' in filt.upper():
             orders = [1]
             self.filter = 'F277W'
+        else:
+            orders = [1,2]
             
         # If there is a planet transmission spectrum but no LDCs, generate them
         if planet!='':
