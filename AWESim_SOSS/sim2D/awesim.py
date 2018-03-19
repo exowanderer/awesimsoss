@@ -647,22 +647,8 @@ class TSO(object):
         star1D = [star[0]*q.um, (star[1]*q.W/q.m**2/q.um).to(q.erg/q.s/q.cm**2/q.AA)]
         planet1D = np.genfromtxt(DIR_PATH+'/files/WASP107b_pandexo_input_spectrum.dat', unpack=True)
         
-        # Simulate star without transiting planet
+        # Initialize simulation
         tso = awesim.TSO(ngrps=5, nints=20, star=star1D)
-        tso.run_simulation()
-        
-        # Simulate star with transiting exoplanet
-        params = batman.TransitParams()
-        params.t0 = 0.                                # time of inferior conjunction
-        params.per = 5.7214742                        # orbital period (days)
-        params.a = 0.0558*q.AU.to(ac.R_sun)*0.66      # semi-major axis (in units of stellar radii)
-        params.inc = 89.8                             # orbital inclination (in degrees)
-        params.ecc = 0.                               # eccentricity
-        params.w = 90.                                # longitude of periastron (in degrees)
-        params.teff = 3500                            # effective temperature of the host star
-        params.logg = 5                               # log surface gravity of the host star
-        params.feh = 0                                # metallicity of the host star
-        tso.run_simulation(planet=planet1D, params=params)
         """
         # Set instance attributes for the exposure
         self.subarray = subarray
@@ -710,7 +696,7 @@ class TSO(object):
         self.tso_order1_ideal = np.zeros(self.dims)
         self.tso_order2_ideal = np.zeros(self.dims)
     
-    def run_simulation(self, filt='CLEAR', orders=[1,2], planet='', params='', ld_profile='quadratic', ld_coeffs=''):
+    def run_simulation(self, filt='CLEAR', orders=[1,2], planet='', params='', ld_profile='quadratic', ld_coeffs='', verbose=True):
         """
         Generate the simulated 2D data given the initialized TSO object
         
@@ -728,6 +714,24 @@ class TSO(object):
             The limb darkening profile to use
         ld_coeffs: array-like (optional)
             A 3D array that assigns limb darkening coefficients to each pixel, i.e. wavelength
+        
+        Example
+        -------
+        # Run simulation of star only
+        tso.run_simulation()
+        
+        # Simulate star with transiting exoplanet by including transmission spectrum and orbital params
+        params = batman.TransitParams()
+        params.t0 = 0.                                # time of inferior conjunction
+        params.per = 5.7214742                        # orbital period (days)
+        params.a = 0.0558*q.AU.to(ac.R_sun)*0.66      # semi-major axis (in units of stellar radii)
+        params.inc = 89.8                             # orbital inclination (in degrees)
+        params.ecc = 0.                               # eccentricity
+        params.w = 90.                                # longitude of periastron (in degrees)
+        params.teff = 3500                            # effective temperature of the host star
+        params.logg = 5                               # log surface gravity of the host star
+        params.feh = 0                                # metallicity of the host star
+        tso.run_simulation(planet=planet1D, params=params)
         """
         # Clear previous results
         self.tso = np.zeros(self.dims)
@@ -850,9 +854,9 @@ class TSO(object):
         self.tso_ideal = self.tso.copy()
         
         # Add noise and ramps
-        self.add_noise()
+        self.add_noise(verbose=verbose)
     
-    def add_noise(self, zodi_scale=1., offset=500):
+    def add_noise(self, zodi_scale=1., offset=500, verbose=True):
         """
         Generate ramp and background noise
         
@@ -863,8 +867,9 @@ class TSO(object):
         offset: int
             The dark current offset
         """
-        print('Adding noise to TSO...')
-        start = time.time()
+        if verbose:
+            print('Adding noise to TSO...')
+            start = time.time()
         
         # Get the separated orders
         orders = np.asarray([self.tso_order1_ideal,self.tso_order2_ideal])
@@ -901,7 +906,8 @@ class TSO(object):
             # Update the TSO with one containing noise
             self.tso[self.ngrps*n:self.ngrps*n+self.ngrps] = ramp
             
-        print('Noise model finished:', time.time()-start)
+        if verbose:
+            print('Noise model finished:', time.time()-start)
         
     def plot_frame(self, frame='', scale='linear', order='', noise=True, cmap=cm.jet):
         """
